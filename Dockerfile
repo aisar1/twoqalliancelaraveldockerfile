@@ -6,8 +6,8 @@ FROM node:20 AS frontend
 WORKDIR /app
 
 # Copy package.json and install dependencies
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package*.json ./
+RUN npm install
 
 # Copy the rest of the application and build the assets
 COPY . .
@@ -15,9 +15,9 @@ RUN npm run build
 
 
 # ==========================================
-# Step 2: Build the PHP environment
+# Step 2: Build the PHP/Apache environment
 # ==========================================
-FROM php:8.4-fpm
+FROM php:8.4-apache
 
 # Install system dependencies and PHP extensions required by Laravel
 RUN apt-get update && apt-get install -y \
@@ -31,33 +31,33 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
 
-# Get the latest Composer from the official image
+# Enable Apache mod_rewrite for Laravel routing
+RUN a2enmod rewrite
+
+# Change Apache DocumentRoot from default to Laravel's public directory
+ENV APACHE_DOCUMENT_ROOT /var/www/public
+RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
+RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+
+# Get the latest Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Set the working directory inside the container
+# Set the working directory
 WORKDIR /var/www
 
-# Copy only the composer files first to leverage Docker cache
+# Install Laravel dependencies
 COPY composer.json composer.lock ./
-
-# Install Laravel dependencies (Optimized and without dev tools)
 RUN composer install --optimize-autoloader --no-dev --no-scripts
 
-# Copy the rest of the application code
+# Copy application code and compiled frontend assets
 COPY . .
-
-# Copy the compiled frontend assets from Step 1
 COPY --from=frontend /app/public/build ./public/build
 
-# Set proper permissions for Laravel's storage and cache directories
+# Set permissions for storage and cache
 RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache \
     && chmod -R 775 /var/www/storage /var/www/bootstrap/cache
 
-# Run Laravel optimization commands (Caching)
+# Run Laravel optimization commands
 RUN php artisan config:cache \
     && php artisan route:cache \
     && php artisan view:cache
-
-# Expose port 9000 and start the PHP-FPM server
-EXPOSE 9000
-CMD ["php-fpm"]
