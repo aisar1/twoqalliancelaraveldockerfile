@@ -17,7 +17,7 @@ RUN npm run build
 # ==========================================
 # Step 2: Build the PHP environment
 # ==========================================
-FROM php:8.2-fpm
+FROM php:8.4-fpm
 
 # Install system dependencies and PHP extensions required by Laravel
 RUN apt-get update && apt-get install -y \
